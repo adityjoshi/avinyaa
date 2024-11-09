@@ -4,12 +4,16 @@ import (
 	"time"
 
 	"github.com/adityjoshi/avinyaa/controllers"
+	kafkamanager "github.com/adityjoshi/avinyaa/kafka/kafkaManager"
 	"github.com/adityjoshi/avinyaa/middleware"
 	"github.com/gin-gonic/gin"
 )
 
-func HospitalAdmin(incomingRoutes *gin.Engine) {
-	incomingRoutes.POST("/hospitaladmin", controllers.RegisterHospitalAdmin)
+func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
+	incomingRoutes.POST("/hospitaladmin", func(c *gin.Context) {
+		c.Set("km", km)                      // Set km into the context
+		controllers.RegisterHospitalAdmin(c) // Call the controller function
+	})
 	incomingRoutes.POST("/adminLogin", middleware.RateLimiterMiddleware(2, time.Minute), controllers.AdminLogin)
 	incomingRoutes.POST("/adminOtp", controllers.VerifyAdminOTP)
 	incomingRoutes.POST("/stafflogin", controllers.StaffLogin)

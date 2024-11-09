@@ -3,32 +3,85 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/adityjoshi/avinyaa/database"
+	kafkamanager "github.com/adityjoshi/avinyaa/kafka/kafkaManager"
 	"github.com/adityjoshi/avinyaa/utils"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
+// func RegisterHospitalAdmin(c *gin.Context) {
+// 	var admin database.HospitalAdmin
+
+// 	if err := c.BindJSON(&admin); err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// 		return
+// 	}
+// 	if admin.Usertype == "" {
+// 		admin.Usertype = "Admin" // Default to "Admin" if not provided
+// 	}
+// 	var existingUser database.HospitalAdmin
+// 	if err := database.DB.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
+// 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
+// 		return
+// 	}
+// 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(admin.Password), bcrypt.DefaultCost)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+// 		return
+// 	}
+// 	admin.Password = string(hashedPassword)
+
+// 	if err := database.DB.Create(&admin).Error; err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register admin"})
+// 		return
+// 	}
+
+// 	c.JSON(http.StatusCreated, gin.H{"message": "Hospital admin registered successfully", "admin_id": admin.AdminID})
+// }
+
+// RegisterHospitalAdmin handles hospital admin registration and sends the data to Kafka
 func RegisterHospitalAdmin(c *gin.Context) {
+	// Retrieve KafkaManager from the context
+	km, exists := c.Get("km")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "KafkaManager not found"})
+		return
+	}
+
+	kafkaManager, ok := km.(*kafkamanager.KafkaManager)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid KafkaManager"})
+		return
+	}
+
 	var admin database.HospitalAdmin
 
+	// Bind incoming JSON request to the HospitalAdmin struct
 	if err := c.BindJSON(&admin); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Default the Usertype if not provided
 	if admin.Usertype == "" {
-		admin.Usertype = "Admin" // Default to "Admin" if not provided
+		admin.Usertype = "Admin"
 	}
+
+	// Check if the user already exists in the database
 	var existingUser database.HospitalAdmin
 	if err := database.DB.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	}
+
+	// Hash the password before storing it
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(admin.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
@@ -36,12 +89,49 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	}
 	admin.Password = string(hashedPassword)
 
+	// Get the region from the request body (ensure region is part of the request)
+	region := admin.Region // Assuming the region is passed as form data
+	if region == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Region is required"})
+		return
+	}
+
+	// Prepare the message to send to Kafka (just using the admin data here)
+	message := fmt.Sprintf("Admin ID: %s, Name: %s, Email: %s, Usertype: %s", admin.AdminID, admin.FullName, admin.Email, admin.Usertype)
+
+	// Send the registration message to Kafka based on the region
+	var errKafka error
+	switch region {
+	case "north":
+		// Send to North region's Kafka topic (you provide the topic name)
+		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", message)
+	case "south":
+		// Send to South region's Kafka topic (you provide the topic name)
+		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", message)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid region: %s", region)})
+		return
+	}
+
+	// Check if there was an error sending the message to Kafka
+	if errKafka != nil {
+		log.Printf("Failed to send registration data to Kafka: %v", errKafka)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send data to Kafka"})
+		return
+	}
+
+	// Save the new hospital admin in the database after sending data to Kafka
 	if err := database.DB.Create(&admin).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register admin"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Hospital admin registered successfully", "admin_id": admin.AdminID})
+	// Respond with success if both Kafka message sending and database insertion were successful
+	c.JSON(http.StatusCreated, gin.H{
+		"message":              "Hospital admin registered successfully",
+		"admin_id":             admin.AdminID,
+		"kafka_message_status": "Message sent to Kafka successfully",
+	})
 }
 
 func AdminLogin(c *gin.Context) {
