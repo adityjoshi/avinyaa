@@ -8,6 +8,12 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	NorthDB *gorm.DB
+	SouthDB *gorm.DB
+	DB      *gorm.DB
+)
+
 func InitDatabase() {
 	var err error
 	dsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
@@ -18,8 +24,27 @@ func InitDatabase() {
 		fmt.Print("database connected successfully ⚡️")
 	}
 
+	Northdsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
+	NorthDB, err := gorm.Open(postgres.Open(Northdsn), &gorm.Config{})
+	if err != nil {
+		panic("failed to connect database")
+	} else {
+		fmt.Print("database connected successfully ⚡️")
+	}
+
+	Southdsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
+	SouthDB, err := gorm.Open(postgres.Open(Southdsn), &gorm.Config{})
+	if err != nil {
+		panic("failed to connect database")
+	} else {
+		fmt.Print("database connected successfully ⚡️")
+	}
+
 	// Migrate the schema
 	DB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+
+	SouthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+	NorthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
 }
 
 // func InitDatabase(region string) {
@@ -46,8 +71,6 @@ func InitDatabase() {
 // 	}
 // 	DB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
 // }
-
-var DB *gorm.DB
 
 type Gender string
 
@@ -220,6 +243,20 @@ type Appointment struct {
 func CloseDatabase() {
 	if DB != nil {
 		sqlDB, err := DB.DB()
+		if err != nil {
+			return
+		}
+		sqlDB.Close()
+	}
+	if NorthDB != nil {
+		sqlDB, err := NorthDB.DB()
+		if err != nil {
+			return
+		}
+		sqlDB.Close()
+	}
+	if SouthDB != nil {
+		sqlDB, err := SouthDB.DB()
 		if err != nil {
 			return
 		}
