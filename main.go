@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/adityjoshi/avinya/controllers"
+	"github.com/adityjoshi/avinyaa/controllers"
 	"github.com/adityjoshi/avinyaa/database"
 	"github.com/adityjoshi/avinyaa/initiliazers"
 	"github.com/adityjoshi/avinyaa/routes"
