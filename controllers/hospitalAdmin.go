@@ -97,7 +97,7 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	}
 
 	// Prepare the message to send to Kafka (just using the admin data here)
-	message := fmt.Sprintf("Admin ID: %s, Name: %s, Email: %s, Usertype: %s", admin.AdminID, admin.FullName, admin.Email, admin.Usertype)
+	message := fmt.Sprintf("Admin ID: %s, Name: %s, Email: %s, Usertype: %s", admin.AdminID, admin.FullName, admin.Email, admin.Password, admin.ContactNumber, admin.Region, admin.Usertype)
 
 	// Send the registration message to Kafka based on the region
 	var errKafka error
@@ -117,12 +117,6 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	if errKafka != nil {
 		log.Printf("Failed to send registration data to Kafka: %v", errKafka)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send data to Kafka"})
-		return
-	}
-
-	// Save the new hospital admin in the database after sending data to Kafka
-	if err := database.DB.Create(&admin).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register admin"})
 		return
 	}
 

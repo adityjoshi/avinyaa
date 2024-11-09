@@ -7,6 +7,7 @@ import (
 	"github.com/adityjoshi/avinyaa/controllers"
 	"github.com/adityjoshi/avinyaa/database"
 	"github.com/adityjoshi/avinyaa/initiliazers"
+	kafkaconsumer "github.com/adityjoshi/avinyaa/kafka/kafkaConsumer"
 	kafkamanager "github.com/adityjoshi/avinyaa/kafka/kafkaManager"
 	"github.com/adityjoshi/avinyaa/routes"
 	"github.com/gin-contrib/cors"
@@ -41,6 +42,15 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize Kafka Manager:", err)
 	}
+
+	// brokers := []string{"localhost:9092"} // Add more brokers if needed
+
+	// // Start Kafka consumers for North and South regions
+	// go kafkaconsumer.StartConsumer(brokers, "north") // Consumer for North region
+	// go kafkaconsumer.StartConsumer(brokers, "south") // Consumer for South region
+	brokers := []string{"localhost:9092"}
+	region := "north" // or "south"
+	kafkaconsumer.StartConsumer(brokers, region)
 
 	router := gin.Default()
 	go controllers.SubscribeToPaymentUpdates()
