@@ -29,6 +29,7 @@ func NewNorthProducer(brokers []string) (*NorthProducer, error) {
 
 // SendMessage sends a message to a specific topic in the North region
 func (p *NorthProducer) SendMessage(topic, message string) error {
+	log.Printf("Producer received message: %s", message)
 	msg := &sarama.ProducerMessage{
 		Topic: topic,
 		Value: sarama.StringEncoder(message),
