@@ -24,20 +24,20 @@ func InitDatabase() {
 		fmt.Print("database connected successfully ⚡️")
 	}
 
-	Northdsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
+	Northdsn := "host=localhost user=postgres password=aditya dbname=northdb port=5432"
 	NorthDB, err := gorm.Open(postgres.Open(Northdsn), &gorm.Config{})
 	if err != nil {
-		panic("failed to connect database")
+		panic("failed to connect North database \n")
 	} else {
-		fmt.Print("database connected successfully ⚡️")
+		fmt.Print("North database connected successfully ⚡️ \n")
 	}
 
-	Southdsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
+	Southdsn := "host=localhost user=postgres password=aditya dbname=southdb port=5432"
 	SouthDB, err := gorm.Open(postgres.Open(Southdsn), &gorm.Config{})
 	if err != nil {
-		panic("failed to connect database")
+		panic("failed to connect South database \n")
 	} else {
-		fmt.Print("database connected successfully ⚡️")
+		fmt.Print("South database connected successfully ⚡️ \n")
 	}
 
 	// Migrate the schema
