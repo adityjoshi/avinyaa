@@ -120,6 +120,7 @@ type Hospitals struct {
 	AdminID       uint   `json:"admin_id" gorm:"primaryKey;foreignKey:AdminID;references:HospitalAdmin(AdminID);onDelete:CASCADE"`
 	Username      string `json:"username" gorm:"unique;not null"`
 	Description   string `json:"description"`
+	Region        string `json:"region"`
 }
 
 type Department string

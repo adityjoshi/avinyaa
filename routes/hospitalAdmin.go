@@ -23,7 +23,14 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 	incomingRoutes.POST("/compounder", controllers.CompounderLogin)
 	incomingRoutes.POST("/markCompounder", middleware.AuthRequired("Staff", "Compounder"), controllers.MarkPatientAsHospitalized)
 	incomingRoutes.GET("/get", middleware.AuthRequired("Staff", "Compounder"), controllers.GetRoomAssignments)
-	// incomingRoutes.POST("/registerhospital", controllers.RegisterHospital)
+	// incomingRoutes.POST("/registerhospital", middleware.AuthRequired("Admin", ""), controllers.RegisterHospital)
+	incomingRoutes.POST("/registerhospital", middleware.AuthRequired("Admin", ""), func(c *gin.Context) {
+		// Set km into the context (KafkaManager)
+		c.Set("km", km)
+
+		// Call the controller function
+		controllers.RegisterHospital(c)
+	})
 	// incomingRoutes.GET("/gethospital/:id", controllers.GetHospital)
 	// incomingRoutes.POST("/doctor", controllers.RegisterDoctor)
 	// incomingRoutes.GET("/getdoctor/:id", controllers.GetDoctor)

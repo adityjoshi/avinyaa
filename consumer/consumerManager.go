@@ -11,8 +11,8 @@ func StartConsumer(region string) {
 	kafkaBroker := "localhost:9092"
 	var topic = []string{
 		"hospital_admin",
-		"hospital_updates",
-		"hospital_notifications",
+		"hospital_registration",
+
 		// Add other topics as necessary
 	}
 	switch region {

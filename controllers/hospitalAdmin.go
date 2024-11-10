@@ -141,48 +141,6 @@ func AdminLogin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "OTP sent to email. Please verify the OTP.", "token": token, "region": admin.Region})
 }
 
-// func VerifyAdminOTP(c *gin.Context) {
-// 	var otpRequest struct {
-// 		Email string `json:"email"`
-// 		OTP   string `json:"otp"`
-// 	}
-// 	if err := c.BindJSON(&otpRequest); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-// 	region, exists := c.Get("region")
-// 	if !exists {
-// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized region"})
-// 		return
-// 	}
-// 	// Verify the OTP
-// 	isValid, err := VerifyOtp(otpRequest.Email, otpRequest.OTP)
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error verifying OTP"})
-// 		return
-// 	}
-// 	if !isValid {
-// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
-// 		return
-// 	}
-
-// 	// Retrieve user information after OTP verification
-// 	var user database.HospitalAdmin
-// 	db, err := database.GetDBForRegion(region)
-// 	err = db.Where("email = ?", otpRequest.Email).First(&user).Error; err != nil {
-// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
-// 		return
-// 	}
-// 	redisClient := database.GetRedisClient()
-// 	err = redisClient.Set(context.Background(), "otp_verified:"+strconv.Itoa(int(user.AdminID)), "verified", 0).Err()
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error setting OTP verification status"})
-// 		return
-// 	}
-
-// 	c.JSON(http.StatusOK, gin.H{"loggedin": "success"})
-// }
-
 func VerifyAdminOTP(c *gin.Context) {
 	var otpRequest struct {
 		Email string `json:"email"`
@@ -270,9 +228,27 @@ func RegisterHospital(c *gin.Context) {
 		return
 	}
 	hospital.AdminID = adminIDUint
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Region not specified"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
+	hospital.Region = regionStr
+
+	// Retrieve the appropriate database based on region
+	db, err := database.GetDBForRegion(regionStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error connecting to regional database"})
+		return
+	}
 
 	var latestHospital database.Hospitals
-	if err := database.DB.Order("hospital_id DESC").First(&latestHospital).Error; err != nil {
+	if err := db.Order("hospital_id DESC").First(&latestHospital).Error; err != nil {
 		if err != gorm.ErrRecordNotFound {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve latest hospital"})
 			return
@@ -280,38 +256,20 @@ func RegisterHospital(c *gin.Context) {
 	}
 
 	// Generate the hospital username based on HospitalID, HospitalName, and AdminID
-
-	if err := database.DB.Create(&hospital).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create hospital"})
-		return
-	}
-	hospital.Username = fmt.Sprintf("DEL%d", hospital.HospitalId)
-	if err := database.DB.Model(&hospital).Update("username", hospital.Username).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update hospital username"})
+	hospitalRegistration, err := json.Marshal(hospital)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal hospital admin data to JSON"})
 		return
 	}
 
-	// Prepare the message to send to Kafka
-	message := fmt.Sprintf("New hospital created: ID=%d, Name=%s, AdminID=%d, Username=%s",
-		hospital.HospitalId, hospital.HospitalName, hospital.AdminID, hospital.Username)
-
-	// Send the registration message to Kafka based on the region
-	// Assume hospital.Region is passed in the request
-	region := "north" // Assuming region is part of the hospital data
 	var errKafka error
-	switch region {
+	switch regionStr {
 	case "north":
 		// Send to North region's Kafka topic
-		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(regionStr, "hospital_registration", string(hospitalRegistration))
 	case "south":
 		// Send to South region's Kafka topic
-		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
-	case "east":
-		// Send to East region's Kafka topic
-		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
-	case "west":
-		// Send to West region's Kafka topic
-		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(regionStr, "hospital_registration", string(hospitalRegistration))
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid region: %s", region)})
 		return
@@ -324,7 +282,7 @@ func RegisterHospital(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Hospital created successfully", "hospital_id": hospital.HospitalId, "admin": adminIDUint, "username": hospital.Username})
+	c.JSON(http.StatusCreated, gin.H{"message": "Hospital created successfully", "region": regionStr})
 }
 
 func GetHospital(c *gin.Context) {

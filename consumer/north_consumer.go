@@ -224,9 +224,22 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 		}
 		// Add your logic for processing hospital_admin messages here
 
-	case "hospital_registrations":
-		// Process hospital updates messages
+	case "hospital_registration":
 		log.Printf("Processing hospital_registration message: %s", string(msg.Value))
+
+		var hospital database.Hospitals
+		if err := json.Unmarshal(msg.Value, &hospital); err != nil {
+			log.Printf("Error unmarshalling hospital data: %v", err)
+			return err
+
+		}
+		hospital.Username = fmt.Sprintf("DEL%d", hospital.HospitalId)
+
+		if err := database.NorthDB.Create(&hospital).Error; err != nil {
+			log.Printf("Error creating hospital in database: %v", err)
+			return fmt.Errorf(err.Error())
+		}
+
 		// Add your logic for processing hospital_updates messages here
 	default:
 		// Handle any other topics or log an error if the topic is not recognized
