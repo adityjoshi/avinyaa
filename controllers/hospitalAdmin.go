@@ -78,7 +78,8 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	// Check if the user already exists in the database
 	// var existingUser database.HospitalAdmin
 	var existingUser database.HospitalAdmin
-	if err := database.DB.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
+	db, err := database.GetDBForRegion(admin.Region)
+	if err := db.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
 		return
 	}
