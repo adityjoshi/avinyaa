@@ -181,3 +181,31 @@ func (km *KafkaManager) SendUserRegistrationMessage(region, topic, message strin
 	log.Printf("Message successfully sent to topic %s in %s region", topic, region)
 	return nil
 }
+
+func (km *KafkaManager) SendHospitalRegistrationMessage(region, topic, message string) error {
+	var err error
+
+	// Check if the region is valid and determine the correct producer
+	switch region {
+	case "north":
+		// Log for debugging
+		log.Printf("Sending message to North region, topic: %s", topic)
+		err = km.northProducer.SendMessage(topic, message)
+	case "south":
+		// Log for debugging
+		log.Printf("Sending message to South region, topic: %s", topic)
+		err = km.southProducer.SendMessage(topic, message)
+	default:
+		// Return an error if the region is invalid
+		return fmt.Errorf("invalid region: %s", region)
+	}
+
+	// Return any errors from sending the message
+	if err != nil {
+		return fmt.Errorf("failed to send message to Kafka topic %s in %s region: %w", topic, region, err)
+	}
+
+	// Log successful message sending
+	log.Printf("Message successfully sent to topic %s in %s region", topic, region)
+	return nil
+}

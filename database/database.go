@@ -14,37 +14,72 @@ var (
 	DB      *gorm.DB
 )
 
+// func InitDatabase() {
+// 	var err error
+// 	dsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
+// 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+// 	if err != nil {
+// 		panic("failed to connect database")
+// 	} else {
+// 		fmt.Print("database connected successfully ⚡️")
+// 	}
+
+// 	Northdsn := "host=localhost user=postgres password=aditya dbname=northdb port=5432"
+// 	NorthDB, err := gorm.Open(postgres.Open(Northdsn), &gorm.Config{})
+// 	if err != nil {
+// 		panic("failed to connect North database \n")
+// 	} else {
+// 		fmt.Print("North database connected successfully ⚡️ \n")
+// 	}
+
+// 	Southdsn := "host=localhost user=postgres password=aditya dbname=southdb port=5432"
+// 	SouthDB, err := gorm.Open(postgres.Open(Southdsn), &gorm.Config{})
+// 	if err != nil {
+// 		panic("failed to connect South database \n")
+// 	} else {
+// 		fmt.Print("South database connected successfully ⚡️ \n")
+// 	}
+
+// 	// Migrate the schema
+// 	DB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+
+// 	SouthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+// 	NorthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+// }
+
 func InitDatabase() {
 	var err error
+	// Main DB connection (hosp)
 	dsn := "host=localhost user=postgres password=aditya dbname=hosp port=5432"
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		panic("failed to connect database")
 	} else {
-		fmt.Print("database connected successfully ⚡️")
+		fmt.Println("Database connected successfully ⚡️")
 	}
 
+	// North DB connection (northdb)
 	Northdsn := "host=localhost user=postgres password=aditya dbname=northdb port=5432"
-	NorthDB, err := gorm.Open(postgres.Open(Northdsn), &gorm.Config{})
+	NorthDB, err = gorm.Open(postgres.Open(Northdsn), &gorm.Config{})
 	if err != nil {
-		panic("failed to connect North database \n")
+		panic("failed to connect North database")
 	} else {
-		fmt.Print("North database connected successfully ⚡️ \n")
+		fmt.Println("North database connected successfully ⚡️")
 	}
 
+	// South DB connection (southdb)
 	Southdsn := "host=localhost user=postgres password=aditya dbname=southdb port=5432"
-	SouthDB, err := gorm.Open(postgres.Open(Southdsn), &gorm.Config{})
+	SouthDB, err = gorm.Open(postgres.Open(Southdsn), &gorm.Config{})
 	if err != nil {
-		panic("failed to connect South database \n")
+		panic("failed to connect South database")
 	} else {
-		fmt.Print("South database connected successfully ⚡️ \n")
+		fmt.Println("South database connected successfully ⚡️")
 	}
 
-	// Migrate the schema
+	// Migrate the schema for each database
 	DB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
-
-	SouthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
 	NorthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
+	SouthDB.AutoMigrate(&Users{}, &PatientInfo{}, &HospitalAdmin{}, &Hospitals{}, &Doctors{}, &Appointment{}, &HospitalStaff{}, &BedsCount{}, &Patients{}, &Room{}, &PatientBeds{})
 }
 
 // func InitDatabase(region string) {

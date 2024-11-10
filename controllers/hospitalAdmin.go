@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -75,6 +76,7 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	}
 
 	// Check if the user already exists in the database
+	// var existingUser database.HospitalAdmin
 	var existingUser database.HospitalAdmin
 	if err := database.DB.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
@@ -97,17 +99,21 @@ func RegisterHospitalAdmin(c *gin.Context) {
 	}
 
 	// Prepare the message to send to Kafka (just using the admin data here)
-	message := fmt.Sprintf("Admin ID: %s, Name: %s, Email: %s, Usertype: %s", admin.AdminID, admin.FullName, admin.Email, admin.Password, admin.ContactNumber, admin.Region, admin.Usertype)
-
+	//message := fmt.Sprintf("Admin ID: %s, Name: %s, Email: %s, Usertype: %s", admin.AdminID, admin.FullName, admin.Email, admin.Password, admin.ContactNumber, admin.Region, admin.Usertype)
+	adminMessage, err := json.Marshal(admin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal hospital admin data to JSON"})
+		return
+	}
 	// Send the registration message to Kafka based on the region
 	var errKafka error
 	switch region {
 	case "north":
 		// Send to North region's Kafka topic (you provide the topic name)
-		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", message)
+		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", string(adminMessage))
 	case "south":
 		// Send to South region's Kafka topic (you provide the topic name)
-		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", message)
+		errKafka = kafkaManager.SendUserRegistrationMessage(region, "hospital_admin", string(adminMessage))
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid region: %s", region)})
 		return
@@ -204,6 +210,17 @@ func RegisterHospital(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	km, exists := c.Get("km")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "KafkaManager not found"})
+		return
+	}
+
+	kafkaManager, ok := km.(*kafkamanager.KafkaManager)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid KafkaManager"})
+		return
+	}
 	adminID, exists := c.Get("admin_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -236,6 +253,40 @@ func RegisterHospital(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update hospital username"})
 		return
 	}
+
+	// Prepare the message to send to Kafka
+	message := fmt.Sprintf("New hospital created: ID=%d, Name=%s, AdminID=%d, Username=%s",
+		hospital.HospitalId, hospital.HospitalName, hospital.AdminID, hospital.Username)
+
+	// Send the registration message to Kafka based on the region
+	// Assume hospital.Region is passed in the request
+	region := "north" // Assuming region is part of the hospital data
+	var errKafka error
+	switch region {
+	case "north":
+		// Send to North region's Kafka topic
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+	case "south":
+		// Send to South region's Kafka topic
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+	case "east":
+		// Send to East region's Kafka topic
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+	case "west":
+		// Send to West region's Kafka topic
+		errKafka = kafkaManager.SendHospitalRegistrationMessage(region, "hospital_registration", message)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid region: %s", region)})
+		return
+	}
+
+	// Check if there was an error sending the message to Kafka
+	if errKafka != nil {
+		log.Printf("Failed to send hospital registration data to Kafka: %v", errKafka)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send data to Kafka"})
+		return
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"message": "Hospital created successfully", "hospital_id": hospital.HospitalId, "admin": adminIDUint, "username": hospital.Username})
 }
 
