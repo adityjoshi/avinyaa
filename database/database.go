@@ -165,6 +165,7 @@ type HospitalStaff struct {
 	HospitalName  string   `gorm:"not null "`
 	Username      string   `json:"username" gorm:"unique;not null"`
 	Password      string   `json:"password" gorm:"not null"`
+	Region        string   `json:"region"`
 }
 type BedsType string
 

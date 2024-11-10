@@ -129,9 +129,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/IBM/sarama"
 	"github.com/adityjoshi/avinyaa/database"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type NorthConsumer struct {
@@ -240,11 +242,79 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 			return fmt.Errorf(err.Error())
 		}
 
-		// Add your logic for processing hospital_updates messages here
+		// case "hospital_staff":
+		// 	log.Printf("Processing hospital_registration message: %s", string(msg.Value))
+		// 	var staff database.HospitalStaff
+		// 	password := generatePassword(staff.FullName, staff.Region)
+		// 	staff.Password = password
+		// 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
+		// 	if err != nil {
+		// 		log.Printf("Failed to hash password: %v", err)
+		// 		return fmt.Errorf("failed to hash password: %v", err)
+		// 	}
+		// 	staff.Password = string(hashedPassword)
+		// 	staff.Username = fmt.Sprintf("%s%s", staff.ContactNumber, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
+
+		// 	if err := database.NorthDB.Create(&staff).Error; err != nil {
+		// 		log.Printf("Failed to save staff data: %v", err)
+		// 		return fmt.Errorf("failed to save staff data: %v", err)
+		// 	}
+
+		// 	return nil
+	case "hospital_staff":
+		log.Printf("Processing hospital_staff registration message: %s", string(msg.Value))
+
+		var staff database.HospitalStaff
+		// Unmarshal the received Kafka message into the staff object
+		err := json.Unmarshal(msg.Value, &staff)
+		if err != nil {
+			log.Printf("Failed to unmarshal hospital staff data: %v", err)
+			return fmt.Errorf("failed to unmarshal staff data: %v", err)
+		}
+
+		// At this point, `staff` is populated with data received from Kafka.
+		// Now, we will generate the password and username for the staff member.
+
+		// Generate the password based on staff full name and region
+		password := generatePassword(staff.FullName, staff.Region)
+		staff.Password = password
+
+		// Hash the staff password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("Failed to hash password: %v", err)
+			return fmt.Errorf("failed to hash password: %v", err)
+		}
+		staff.Password = string(hashedPassword)
+
+		// Generate the username by combining contact number and full name
+		staff.Username = fmt.Sprintf("%s%s", staff.ContactNumber, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
+
+		// Now, save the staff record to the correct regional database.
+		db, err := database.GetDBForRegion(staff.Region)
+		if err != nil {
+			log.Printf("Failed to connect to database for region %s: %v", staff.Region, err)
+			return fmt.Errorf("failed to connect to database for region %s: %v", staff.Region, err)
+		}
+
+		// Save the staff to the database
+		if err := db.Create(&staff).Error; err != nil {
+			log.Printf("Failed to save staff data to database: %v", err)
+			return fmt.Errorf("failed to save staff data to database: %v", err)
+		}
+
+		log.Printf("Staff member created successfully with ID: %d", staff.StaffID)
+		return nil
+
 	default:
 		// Handle any other topics or log an error if the topic is not recognized
 		log.Printf("Received message from unknown topic: %s", topic)
 		// Add your default logic here
 	}
 	return nil
+}
+
+func generatePassword(fullName, username string) string {
+	// For simplicity, we combine full name and username to generate a password
+	return fmt.Sprintf("%s%s", fullName, username)
 }

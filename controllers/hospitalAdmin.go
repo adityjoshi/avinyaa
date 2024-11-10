@@ -296,10 +296,22 @@ func GetHospital(c *gin.Context) {
 
 	c.JSON(http.StatusOK, hospital)
 }
+
 func RegisterStaff(c *gin.Context) {
 	var staff database.HospitalStaff
 	if err := c.BindJSON(&staff); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	km, exists := c.Get("km")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "KafkaManager not found"})
+		return
+	}
+
+	kafkaManager, ok := km.(*kafkamanager.KafkaManager)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid KafkaManager"})
 		return
 	}
 
@@ -317,49 +329,69 @@ func RegisterStaff(c *gin.Context) {
 	}
 
 	// Verify admin's hospital authorization
-	hospitalID, err := verifyAdminHospital(adminIDUint)
+
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Region not specified"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
+
+	hospitalID, err := verifyAdminHospital(adminIDUint, regionStr)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to register staff"})
 		return
 	}
 
-	staff.HospitalID = hospitalID
-
+	db, err := database.GetDBForRegion(regionStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error connecting to regional database"})
+		return
+	}
 	// Retrieve hospital details
 	var hospital database.Hospitals
-	if err := database.DB.Where("hospital_id = ?", hospitalID).First(&hospital).Error; err != nil {
+	if err := db.Where("hospital_id = ?", hospitalID).First(&hospital).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve hospital details"})
 		return
 	}
+	staff.Region = regionStr
+	staff.HospitalID = hospitalID
+	staff.Region = regionStr
 	staff.HospitalName = hospital.HospitalName
 
-	// Generate a password based on staff's full name and hospital username
-	password := generatePassword(staff.FullName, hospital.Username)
-	staff.Password = password
-
-	// Hash the staff password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
+	staffRegister, err := json.Marshal(staff)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal hospital staff data to JSON"})
 		return
 	}
-	staff.Password = string(hashedPassword)
+	var errKafka error
+	switch regionStr {
+	case "north":
+		// Send to North region's Kafka topic
+		errKafka = kafkaManager.SendHospitalStaffRegisterMessage(regionStr, "hospital_staff", string(staffRegister))
+	case "south":
+		// Send to South region's Kafka topic
+		errKafka = kafkaManager.SendHospitalStaffRegisterMessage(regionStr, "hospital_staff", string(staffRegister))
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid region: %s", region)})
+		return
+	}
 
-	// Generate a unique username for the staff
-	staff.Username = fmt.Sprintf("%d%s", hospital.HospitalId, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
-
-	// Save the new staff entry
-	if err := database.DB.Create(&staff).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create staff"})
+	// Check if there was an error sending the message to Kafka
+	if errKafka != nil {
+		log.Printf("Failed to send hospital registration data to Kafka: %v", errKafka)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send data to Kafka"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":     "Staff created successfully",
-		"staff_id":    staff.StaffID,
-		"username":    staff.Username,
-		"hospital_id": staff.HospitalID,
-		"password":    staff.Password, // Optionally return the generated password
+		"message": "Staff created successfully",
+		"region":  regionStr,
+		// Optionally return the generated password
 	})
 }
 
@@ -391,7 +423,7 @@ func AddBedType(c *gin.Context) {
 	}
 
 	// Verify the admin's hospital
-	hospitalID, err := verifyAdminHospital(adminIDUint)
+	hospitalID, err := verifyAdminHospital(adminIDUint, "")
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to add beds for this hospital"})
 		return
@@ -449,7 +481,7 @@ func UpdateTotalBeds(c *gin.Context) {
 	}
 
 	// Verify the admin's hospital
-	hospitalID, err := verifyAdminHospital(adminIDUint)
+	hospitalID, err := verifyAdminHospital(adminIDUint, "")
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to update beds for this hospital"})
 		return
@@ -548,7 +580,7 @@ func GetTotalBeds(c *gin.Context) {
 	}
 
 	// Verify the admin's hospital
-	hospitalID, err := verifyAdminHospital(adminIDUint)
+	hospitalID, err := verifyAdminHospital(adminIDUint, "")
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to view beds for this hospital"})
 		return
@@ -582,14 +614,18 @@ func GetTotalBeds(c *gin.Context) {
 	})
 }
 
-func verifyAdminHospital(adminID uint) (uint, error) {
+func verifyAdminHospital(adminID uint, region string) (uint, error) {
 	var admin database.HospitalAdmin
-	if err := database.DB.Where("admin_id = ?", adminID).First(&admin).Error; err != nil {
+	db, err := database.GetDBForRegion(region)
+	if err != nil {
+		return 0, err // Return error if database connection failed
+	}
+	if err := db.Where("admin_id = ?", adminID).First(&admin).Error; err != nil {
 		return 0, err
 	}
 
 	var hospital database.Hospitals
-	if err := database.DB.Where("admin_id = ?", adminID).First(&hospital).Error; err != nil {
+	if err := db.Where("admin_id = ?", adminID).First(&hospital).Error; err != nil {
 		return 0, err
 	}
 

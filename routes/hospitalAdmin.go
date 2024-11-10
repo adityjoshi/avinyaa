@@ -44,7 +44,10 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 		adminRoutes.POST("/doctor", middleware.OtpAuthRequireed, controllers.RegisterDoctor)
 		adminRoutes.GET("/getdoctor/:id", middleware.OtpAuthRequireed, controllers.GetDoctor)
 		adminRoutes.POST("/bookAppointment", middleware.OtpAuthRequireed, controllers.CreateAppointment)
-		//adminRoutes.POST("/registerStaff", middleware.OtpAuthRequireed, controllers.RegisterStaff)
+		adminRoutes.POST("/registerStaff", middleware.OtpAuthRequireed, func(c *gin.Context) {
+			c.Set("km", km)
+			controllers.RegisterStaff(c)
+		})
 		//adminRoutes.POST("/registerBeds", middleware.OtpAuthRequireed, controllers.AddBedType)
 		//adminRoutes.POST("/updateBeds", middleware.OtpAuthRequireed, controllers.UpdateTotalBeds)
 		//adminRoutes.GET("/getBeds", middleware.OtpAuthRequireed, controllers.GetTotalBeds)

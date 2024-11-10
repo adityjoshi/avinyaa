@@ -12,6 +12,7 @@ func StartConsumer(region string) {
 	var topic = []string{
 		"hospital_admin",
 		"hospital_registration",
+		"hospital_staff",
 
 		// Add other topics as necessary
 	}
