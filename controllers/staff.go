@@ -42,7 +42,7 @@ func StaffLogin(c *gin.Context) {
 	}
 
 	// Generate JWT token
-	token, err := utils.GenerateJwt(staff.StaffID, "Staff", string(staff.Position))
+	token, err := utils.GenerateJwt(staff.StaffID, "Staff", string(staff.Position), "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
@@ -455,7 +455,7 @@ func CompounderLogin(c *gin.Context) {
 	}
 
 	// Generate JWT token
-	token, err := utils.GenerateJwt(compounder.StaffID, "Staff", "Compounder")
+	token, err := utils.GenerateJwt(compounder.StaffID, "Staff", "Compounder", "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return

@@ -46,9 +46,17 @@ func AuthRequired(userType, requiredRole string) gin.HandlerFunc {
 		// Store AdminID in context if user type is Admin
 		if userType == "Admin" {
 			c.Set("admin_id", uint(userID))
+
 		}
 		if userType == "Staff" {
 			c.Set("staff_id", uint(userID))
+		}
+		if region, regionExists := claims["region"].(string); regionExists {
+			c.Set("region", region)
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Region not specified in token"})
+			c.Abort()
+			return
 		}
 
 		c.Next()

@@ -17,37 +17,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// func RegisterHospitalAdmin(c *gin.Context) {
-// 	var admin database.HospitalAdmin
-
-// 	if err := c.BindJSON(&admin); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-// 		return
-// 	}
-// 	if admin.Usertype == "" {
-// 		admin.Usertype = "Admin" // Default to "Admin" if not provided
-// 	}
-// 	var existingUser database.HospitalAdmin
-// 	if err := database.DB.Where("email = ?", admin.Email).First(&existingUser).Error; err == nil {
-// 		c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
-// 		return
-// 	}
-// 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(admin.Password), bcrypt.DefaultCost)
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
-// 		return
-// 	}
-// 	admin.Password = string(hashedPassword)
-
-// 	if err := database.DB.Create(&admin).Error; err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register admin"})
-// 		return
-// 	}
-
-// 	c.JSON(http.StatusCreated, gin.H{"message": "Hospital admin registered successfully", "admin_id": admin.AdminID})
-// }
-
-// RegisterHospitalAdmin handles hospital admin registration and sends the data to Kafka
 func RegisterHospitalAdmin(c *gin.Context) {
 	// Retrieve KafkaManager from the context
 	km, exists := c.Get("km")
@@ -139,13 +108,16 @@ func AdminLogin(c *gin.Context) {
 	var loginRequest struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Region   string `json:"region"`
 	}
 	if err := c.BindJSON(&loginRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
 	var admin database.HospitalAdmin
-	if err := database.DB.Where("email = ?", loginRequest.Email).First(&admin).Error; err != nil {
+	db, err := database.GetDBForRegion(loginRequest.Region)
+	if err := db.Where("email = ?", loginRequest.Email).First(&admin).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
@@ -158,16 +130,59 @@ func AdminLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate or send OTP" + otp})
 		return
 	}
-
-	token, err := utils.GenerateJwt(admin.AdminID, "Admin", "")
+	// func GenerateJwt(userID uint, userType, role, region string)
+	token, err := utils.GenerateJwt(admin.AdminID, "Admin", string(admin.Usertype), admin.Region)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
 	// Respond with message to enter OTP
-	c.JSON(http.StatusOK, gin.H{"message": "OTP sent to email. Please verify the OTP.", "token": token})
+	c.JSON(http.StatusOK, gin.H{"message": "OTP sent to email. Please verify the OTP.", "token": token, "region": admin.Region})
 }
+
+// func VerifyAdminOTP(c *gin.Context) {
+// 	var otpRequest struct {
+// 		Email string `json:"email"`
+// 		OTP   string `json:"otp"`
+// 	}
+// 	if err := c.BindJSON(&otpRequest); err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+// 		return
+// 	}
+// 	region, exists := c.Get("region")
+// 	if !exists {
+// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized region"})
+// 		return
+// 	}
+// 	// Verify the OTP
+// 	isValid, err := VerifyOtp(otpRequest.Email, otpRequest.OTP)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error verifying OTP"})
+// 		return
+// 	}
+// 	if !isValid {
+// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
+// 		return
+// 	}
+
+// 	// Retrieve user information after OTP verification
+// 	var user database.HospitalAdmin
+// 	db, err := database.GetDBForRegion(region)
+// 	err = db.Where("email = ?", otpRequest.Email).First(&user).Error; err != nil {
+// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+// 		return
+// 	}
+// 	redisClient := database.GetRedisClient()
+// 	err = redisClient.Set(context.Background(), "otp_verified:"+strconv.Itoa(int(user.AdminID)), "verified", 0).Err()
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error setting OTP verification status"})
+// 		return
+// 	}
+
+// 	c.JSON(http.StatusOK, gin.H{"loggedin": "success"})
+// }
+
 func VerifyAdminOTP(c *gin.Context) {
 	var otpRequest struct {
 		Email string `json:"email"`
@@ -175,6 +190,18 @@ func VerifyAdminOTP(c *gin.Context) {
 	}
 	if err := c.BindJSON(&otpRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get region from context and assert its type
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized region"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
 		return
 	}
 
@@ -189,12 +216,21 @@ func VerifyAdminOTP(c *gin.Context) {
 		return
 	}
 
+	// Retrieve the appropriate database based on region
+	db, err := database.GetDBForRegion(regionStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error connecting to regional database"})
+		return
+	}
+
 	// Retrieve user information after OTP verification
 	var user database.HospitalAdmin
-	if err := database.DB.Where("email = ?", otpRequest.Email).First(&user).Error; err != nil {
+	if err := db.Where("email = ?", otpRequest.Email).First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 		return
 	}
+
+	// Set OTP verification status in Redis
 	redisClient := database.GetRedisClient()
 	err = redisClient.Set(context.Background(), "otp_verified:"+strconv.Itoa(int(user.AdminID)), "verified", 0).Err()
 	if err != nil {
@@ -202,7 +238,7 @@ func VerifyAdminOTP(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"loggedin": "success"})
+	c.JSON(http.StatusOK, gin.H{"loggedin": "success", "region": regionStr})
 }
 
 func RegisterHospital(c *gin.Context) {
