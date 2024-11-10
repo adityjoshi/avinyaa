@@ -1,3 +1,166 @@
+package consumer
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+
+	"github.com/IBM/sarama"
+	"github.com/adityjoshi/avinyaa/database"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type NorthConsumer struct {
+	Consumer sarama.Consumer
+	Topics   []string
+}
+
+// NewNorthConsumer initializes a new Kafka consumer for the north region (multiple topics)
+func NewNorthConsumer(broker string, topics []string) (*NorthConsumer, error) {
+	config := sarama.NewConfig()
+	config.Consumer.Return.Errors = true
+
+	// Create the consumer
+	consumer, err := sarama.NewConsumer([]string{broker}, config)
+	if err != nil {
+		log.Printf("Error creating consumer: %v", err)
+		return nil, fmt.Errorf("error creating consumer: %v", err)
+	}
+
+	log.Printf("Kafka consumer created successfully, subscribing to topics: %v", topics)
+
+	// Return a NorthConsumer instance with the list of topics
+	return &NorthConsumer{Consumer: consumer, Topics: topics}, nil
+}
+
+// Listen starts the consumer and listens for messages on the specified topics
+func (nc *NorthConsumer) Listen() {
+	defer func() {
+		if err := nc.Consumer.Close(); err != nil {
+			log.Printf("Error closing consumer: %v\n", err)
+		}
+	}()
+
+	// Create a consumer for each topic, listening to partition 0 for each one
+	for _, topic := range nc.Topics {
+		partitionConsumer, err := nc.Consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
+		if err != nil {
+			log.Fatalf("Failed to start consumer for partition 0 of topic %s: %v", topic, err)
+		}
+		defer partitionConsumer.Close()
+
+		// Log that the consumer has started listening
+		log.Printf("Consumer is now listening to topic: %s from partition 0\n", topic)
+
+		// Start a goroutine for each topic to consume messages concurrently
+		go nc.consumeMessages(partitionConsumer)
+	}
+
+	// Block indefinitely (since we're listening to multiple topics concurrently)
+	select {}
+}
+
+// consumeMessages handles message consumption for each topic
+func (nc *NorthConsumer) consumeMessages(partitionConsumer sarama.PartitionConsumer) {
+	for msg := range partitionConsumer.Messages() {
+		// Log received message and metadata
+		log.Printf("Received message from topic %s: %s\n", msg.Topic, string(msg.Value))
+		log.Printf("Message metadata - Partition: %d, Offset: %d\n", msg.Partition, msg.Offset)
+
+		// Process the message (e.g., save data to the database or trigger further actions)
+		if err := processMessage(msg.Topic, msg); err != nil {
+			log.Printf("Error processing message: %v", err)
+		} else {
+			log.Printf("Message processed successfully")
+		}
+	}
+}
+
+// processMessage is a placeholder function for processing the received Kafka message
+func processMessage(topic string, msg *sarama.ConsumerMessage) error {
+	if database.NorthDB == nil {
+		log.Fatal("NorthDB is not initialized!")
+		return fmt.Errorf("NorthDB is not initialized")
+	}
+
+	log.Printf("Processing message: %s \n", string(msg.Value))
+	switch topic {
+	case "hospital_admin":
+		// Process hospital admin messages
+		log.Printf("Processing hospital_admin message: %s", string(msg.Value))
+
+		var admin database.HospitalAdmin
+		if err := json.Unmarshal(msg.Value, &admin); err != nil {
+			log.Printf("Failed to unmarshal hospital_admin message: %v", err)
+			return err
+		}
+		if err := database.NorthDB.Create(&admin); err != nil {
+			log.Printf("Failed to save hospital_admin data: %v", err.Error)
+			return fmt.Errorf("Failed to write to the DB", err.Error)
+		}
+		// Add your logic for processing hospital_admin messages here
+
+	case "hospital_registration":
+		log.Printf("Processing hospital_registration message: %s", string(msg.Value))
+
+		var hospital database.Hospitals
+		if err := json.Unmarshal(msg.Value, &hospital); err != nil {
+			log.Printf("Error unmarshalling hospital data: %v", err)
+			return err
+
+		}
+		hospital.Username = fmt.Sprintf("DEL%d", hospital.HospitalId)
+
+		if err := database.NorthDB.Create(&hospital).Error; err != nil {
+			log.Printf("Error creating hospital in database: %v", err)
+			return fmt.Errorf(err.Error())
+		}
+
+	case "hospital_staff":
+		log.Printf("Processing hospital_staff registration message: %s", string(msg.Value))
+
+		var staff database.HospitalStaff
+		err := json.Unmarshal(msg.Value, &staff)
+		if err != nil {
+			log.Printf("Failed to unmarshal hospital staff data: %v", err)
+			return fmt.Errorf("failed to unmarshal staff data: %v", err)
+		}
+
+		password := generatePassword(staff.FullName, staff.Region)
+		staff.Password = password
+
+		// Hash the staff password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("Failed to hash password: %v", err)
+			return fmt.Errorf("failed to hash password: %v", err)
+		}
+		staff.Password = string(hashedPassword)
+		staff.Username = fmt.Sprintf("%s%s", staff.ContactNumber, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
+
+		// Save the staff to the database
+		if err := database.NorthDB.Create(&staff).Error; err != nil {
+			log.Printf("Failed to save staff data to database: %v", err)
+			return fmt.Errorf("failed to save staff data to database: %v", err)
+		}
+
+		log.Printf("Staff member created successfully with ID: %d", staff.StaffID)
+		return nil
+
+	default:
+		// Handle any other topics or log an error if the topic is not recognized
+		log.Printf("Received message from unknown topic: %s", topic)
+		// Add your default logic here
+	}
+	return nil
+}
+
+func generatePassword(fullName, username string) string {
+	// For simplicity, we combine full name and username to generate a password
+	return fmt.Sprintf("%s%s", fullName, username)
+}
+
 // // consumer/north_consumer.go
 
 // package consumer
@@ -122,199 +285,3 @@
 // 	log.Printf("Processing message: %s", string(msg.Value))
 // 	return nil
 // }
-
-package consumer
-
-import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"strings"
-
-	"github.com/IBM/sarama"
-	"github.com/adityjoshi/avinyaa/database"
-	"golang.org/x/crypto/bcrypt"
-)
-
-type NorthConsumer struct {
-	Consumer sarama.Consumer
-	Topics   []string
-}
-
-// NewNorthConsumer initializes a new Kafka consumer for the north region (multiple topics)
-func NewNorthConsumer(broker string, topics []string) (*NorthConsumer, error) {
-	config := sarama.NewConfig()
-	config.Consumer.Return.Errors = true
-
-	// Create the consumer
-	consumer, err := sarama.NewConsumer([]string{broker}, config)
-	if err != nil {
-		log.Printf("Error creating consumer: %v", err)
-		return nil, fmt.Errorf("error creating consumer: %v", err)
-	}
-
-	log.Printf("Kafka consumer created successfully, subscribing to topics: %v", topics)
-
-	// Return a NorthConsumer instance with the list of topics
-	return &NorthConsumer{Consumer: consumer, Topics: topics}, nil
-}
-
-// Listen starts the consumer and listens for messages on the specified topics
-func (nc *NorthConsumer) Listen() {
-	defer func() {
-		if err := nc.Consumer.Close(); err != nil {
-			log.Printf("Error closing consumer: %v\n", err)
-		}
-	}()
-
-	// Create a consumer for each topic, listening to partition 0 for each one
-	for _, topic := range nc.Topics {
-		partitionConsumer, err := nc.Consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
-		if err != nil {
-			log.Fatalf("Failed to start consumer for partition 0 of topic %s: %v", topic, err)
-		}
-		defer partitionConsumer.Close()
-
-		// Log that the consumer has started listening
-		log.Printf("Consumer is now listening to topic: %s from partition 0\n", topic)
-
-		// Start a goroutine for each topic to consume messages concurrently
-		go nc.consumeMessages(partitionConsumer)
-	}
-
-	// Block indefinitely (since we're listening to multiple topics concurrently)
-	select {}
-}
-
-// consumeMessages handles message consumption for each topic
-func (nc *NorthConsumer) consumeMessages(partitionConsumer sarama.PartitionConsumer) {
-	for msg := range partitionConsumer.Messages() {
-		// Log received message and metadata
-		log.Printf("Received message from topic %s: %s\n", msg.Topic, string(msg.Value))
-		log.Printf("Message metadata - Partition: %d, Offset: %d\n", msg.Partition, msg.Offset)
-
-		// Process the message (e.g., save data to the database or trigger further actions)
-		if err := processMessage(msg.Topic, msg); err != nil {
-			log.Printf("Error processing message: %v", err)
-		} else {
-			log.Printf("Message processed successfully")
-		}
-	}
-}
-
-// processMessage is a placeholder function for processing the received Kafka message
-func processMessage(topic string, msg *sarama.ConsumerMessage) error {
-	if database.NorthDB == nil {
-		log.Fatal("NorthDB is not initialized!")
-		return fmt.Errorf("NorthDB is not initialized")
-	}
-
-	log.Printf("Processing message: %s \n", string(msg.Value))
-	switch topic {
-	case "hospital_admin":
-		// Process hospital admin messages
-		log.Printf("Processing hospital_admin message: %s", string(msg.Value))
-
-		var admin database.HospitalAdmin
-		if err := json.Unmarshal(msg.Value, &admin); err != nil {
-			log.Printf("Failed to unmarshal hospital_admin message: %v", err)
-			return err
-		}
-		if err := database.NorthDB.Create(&admin); err != nil {
-			log.Printf("Failed to save hospital_admin data: %v", err.Error)
-			return fmt.Errorf("Failed to write to the DB", err.Error)
-		}
-		// Add your logic for processing hospital_admin messages here
-
-	case "hospital_registration":
-		log.Printf("Processing hospital_registration message: %s", string(msg.Value))
-
-		var hospital database.Hospitals
-		if err := json.Unmarshal(msg.Value, &hospital); err != nil {
-			log.Printf("Error unmarshalling hospital data: %v", err)
-			return err
-
-		}
-		hospital.Username = fmt.Sprintf("DEL%d", hospital.HospitalId)
-
-		if err := database.NorthDB.Create(&hospital).Error; err != nil {
-			log.Printf("Error creating hospital in database: %v", err)
-			return fmt.Errorf(err.Error())
-		}
-
-		// case "hospital_staff":
-		// 	log.Printf("Processing hospital_registration message: %s", string(msg.Value))
-		// 	var staff database.HospitalStaff
-		// 	password := generatePassword(staff.FullName, staff.Region)
-		// 	staff.Password = password
-		// 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
-		// 	if err != nil {
-		// 		log.Printf("Failed to hash password: %v", err)
-		// 		return fmt.Errorf("failed to hash password: %v", err)
-		// 	}
-		// 	staff.Password = string(hashedPassword)
-		// 	staff.Username = fmt.Sprintf("%s%s", staff.ContactNumber, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
-
-		// 	if err := database.NorthDB.Create(&staff).Error; err != nil {
-		// 		log.Printf("Failed to save staff data: %v", err)
-		// 		return fmt.Errorf("failed to save staff data: %v", err)
-		// 	}
-
-		// 	return nil
-	case "hospital_staff":
-		log.Printf("Processing hospital_staff registration message: %s", string(msg.Value))
-
-		var staff database.HospitalStaff
-		// Unmarshal the received Kafka message into the staff object
-		err := json.Unmarshal(msg.Value, &staff)
-		if err != nil {
-			log.Printf("Failed to unmarshal hospital staff data: %v", err)
-			return fmt.Errorf("failed to unmarshal staff data: %v", err)
-		}
-
-		// At this point, `staff` is populated with data received from Kafka.
-		// Now, we will generate the password and username for the staff member.
-
-		// Generate the password based on staff full name and region
-		password := generatePassword(staff.FullName, staff.Region)
-		staff.Password = password
-
-		// Hash the staff password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(staff.Password), bcrypt.DefaultCost)
-		if err != nil {
-			log.Printf("Failed to hash password: %v", err)
-			return fmt.Errorf("failed to hash password: %v", err)
-		}
-		staff.Password = string(hashedPassword)
-
-		// Generate the username by combining contact number and full name
-		staff.Username = fmt.Sprintf("%s%s", staff.ContactNumber, strings.ReplaceAll(strings.ToLower(staff.FullName), " ", ""))
-
-		// Now, save the staff record to the correct regional database.
-		db, err := database.GetDBForRegion(staff.Region)
-		if err != nil {
-			log.Printf("Failed to connect to database for region %s: %v", staff.Region, err)
-			return fmt.Errorf("failed to connect to database for region %s: %v", staff.Region, err)
-		}
-
-		// Save the staff to the database
-		if err := db.Create(&staff).Error; err != nil {
-			log.Printf("Failed to save staff data to database: %v", err)
-			return fmt.Errorf("failed to save staff data to database: %v", err)
-		}
-
-		log.Printf("Staff member created successfully with ID: %d", staff.StaffID)
-		return nil
-
-	default:
-		// Handle any other topics or log an error if the topic is not recognized
-		log.Printf("Received message from unknown topic: %s", topic)
-		// Add your default logic here
-	}
-	return nil
-}
-
-func generatePassword(fullName, username string) string {
-	// For simplicity, we combine full name and username to generate a password
-	return fmt.Sprintf("%s%s", fullName, username)
-}

@@ -395,11 +395,6 @@ func RegisterStaff(c *gin.Context) {
 	})
 }
 
-func generatePassword(fullName string, hospitalUsername string) string {
-	cleanedName := strings.ReplaceAll(strings.ToLower(fullName), " ", "")
-	return fmt.Sprintf("%s%s", cleanedName, hospitalUsername)
-}
-
 func AddBedType(c *gin.Context) {
 	var bedsCount database.BedsCount
 
