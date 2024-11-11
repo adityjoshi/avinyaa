@@ -417,8 +417,19 @@ func AddBedType(c *gin.Context) {
 		return
 	}
 
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Region not specified"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
+
 	// Verify the admin's hospital
-	hospitalID, err := verifyAdminHospital(adminIDUint, "")
+	hospitalID, err := verifyAdminHospital(adminIDUint, regionStr)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to add beds for this hospital"})
 		return
@@ -426,16 +437,18 @@ func AddBedType(c *gin.Context) {
 
 	// Set the hospital ID to the bedsCount object
 	bedsCount.HospitalID = hospitalID
+	bedsCount.Region = regionStr
 
 	// Check if the bed type already exists for the hospital
 	var existingBedType database.BedsCount
-	if err := database.DB.Where("hospital_id = ? AND type_name = ?", hospitalID, bedsCount.TypeName).First(&existingBedType).Error; err == nil {
+	db, err := database.GetDBForRegion(regionStr)
+	if err := db.Where("hospital_id = ? AND type_name = ?", hospitalID, bedsCount.TypeName).First(&existingBedType).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Bed type already exists for this hospital"})
 		return
 	}
 
 	// Save the new bed type and total beds
-	if err := database.DB.Create(&bedsCount).Error; err != nil {
+	if err := db.Create(&bedsCount).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add bed type"})
 		return
 	}
@@ -446,6 +459,7 @@ func AddBedType(c *gin.Context) {
 		"type_name":   bedsCount.TypeName,
 		"total_beds":  bedsCount.TotalBeds,
 		"hospital_id": bedsCount.HospitalID,
+		"region":      bedsCount.Region,
 	})
 }
 
@@ -475,8 +489,19 @@ func UpdateTotalBeds(c *gin.Context) {
 		return
 	}
 
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Region not specified"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
+
 	// Verify the admin's hospital
-	hospitalID, err := verifyAdminHospital(adminIDUint, "")
+	hospitalID, err := verifyAdminHospital(adminIDUint, regionStr)
 	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin not authorized to update beds for this hospital"})
 		return
@@ -484,7 +509,8 @@ func UpdateTotalBeds(c *gin.Context) {
 
 	// Find the bed type for the given hospital
 	var bedType database.BedsCount
-	if err := database.DB.Where("hospital_id = ? AND type_name = ?", hospitalID, bedData.TypeName).First(&bedType).Error; err != nil {
+	db, err := database.GetDBForRegion(regionStr)
+	if err = db.Where("hospital_id = ? AND type_name = ?", hospitalID, bedData.TypeName).First(&bedType).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bed type not found for this hospital"})
 		return
 	}
@@ -505,7 +531,7 @@ func UpdateTotalBeds(c *gin.Context) {
 				RoomNumber: roomNumber,
 				IsOccupied: false,
 			}
-			if err := database.DB.Create(&newRoom).Error; err != nil {
+			if err := db.Create(&newRoom).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rooms"})
 				return
 			}
@@ -520,7 +546,7 @@ func UpdateTotalBeds(c *gin.Context) {
 
 		// Remove unoccupied rooms first
 		var unoccupiedRooms []database.Room
-		if err := database.DB.Where("hospital_id = ? AND bed_type = ? AND is_occupied = ?", hospitalID, bedData.TypeName, false).Order("room_number desc").Limit(bedData.TotalBeds).Find(&unoccupiedRooms).Error; err != nil {
+		if err := db.Where("hospital_id = ? AND bed_type = ? AND is_occupied = ?", hospitalID, bedData.TypeName, false).Order("room_number desc").Limit(bedData.TotalBeds).Find(&unoccupiedRooms).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to find unoccupied rooms"})
 			return
 		}
@@ -533,7 +559,7 @@ func UpdateTotalBeds(c *gin.Context) {
 
 		// Delete the unoccupied rooms
 		for _, room := range unoccupiedRooms {
-			if err := database.DB.Delete(&room).Error; err != nil {
+			if err := db.Delete(&room).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete room"})
 				return
 			}
@@ -548,7 +574,7 @@ func UpdateTotalBeds(c *gin.Context) {
 	}
 
 	// Save the updated bed count
-	if err := database.DB.Save(&bedType).Error; err != nil {
+	if err := db.Save(&bedType).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update bed count"})
 		return
 	}

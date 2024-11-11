@@ -62,13 +62,8 @@ import (
 // }
 
 func RegisterDoctor(c *gin.Context) {
-	var doctorData struct {
-		FullName      string              `json:"full_name"`
-		Description   string              `json:"description"`
-		ContactNumber string              `json:"contact_number"`
-		Email         string              `json:"email"`
-		Department    database.Department `json:"department"`
-	}
+
+	var doctorData database.Doctors
 
 	if err := c.BindJSON(&doctorData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
@@ -87,10 +82,21 @@ func RegisterDoctor(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid admin ID"})
 		return
 	}
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized region"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
 
 	// Find the hospital associated with the admin
 	var hospital database.Hospitals
-	if err := database.DB.Where("admin_id = ?", adminIDUint).First(&hospital).Error; err != nil {
+	db, err := database.GetDBForRegion(regionStr)
+	if err = db.Where("admin_id = ?", adminIDUint).First(&hospital).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Hospital not found for the admin"})
 		return
 	}
@@ -104,13 +110,14 @@ func RegisterDoctor(c *gin.Context) {
 		HospitalID:    hospital.HospitalId,   // Correctly set HospitalID from fetched hospital
 		Hospital:      hospital.HospitalName, // Set HospitalName
 		Department:    doctorData.Department,
+		Region:        regionStr,
 	}
 
 	// Generate username
 	doctor.Username = generateDoctorUsername(doctor.HospitalID, doctor.FullName)
 
 	// Save doctor data
-	if err := database.DB.Create(&doctor).Error; err != nil {
+	if err := db.Create(&doctor).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register doctor"})
 		return
 	}
@@ -129,15 +136,26 @@ func generateDoctorUsername(hospitalID uint, doctorFullName string) string {
 
 func GetDoctor(c *gin.Context) {
 	doctorID := c.Param("doctor_id")
+	region, exists := c.Get("region")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized region"})
+		return
+	}
+	regionStr, ok := region.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid region type"})
+		return
+	}
 
 	var doctor database.Doctors
-	if err := database.DB.First(&doctor, doctorID).Error; err != nil {
+	db, err := database.GetDBForRegion(regionStr)
+	if err = db.First(&doctor, doctorID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Doctor not found"})
 		return
 	}
 
 	var hospital database.Hospitals
-	if err := database.DB.First(&hospital, doctor.HospitalID).Error; err != nil {
+	if err := db.First(&hospital, doctor.HospitalID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Hospital not found for the doctor"})
 		return
 	}
@@ -152,5 +170,6 @@ func GetDoctor(c *gin.Context) {
 		"hospital_name":  hospital.HospitalName,
 		"department":     doctor.Department,
 		"username":       doctor.Username,
+		"region":         doctor.Region,
 	})
 }

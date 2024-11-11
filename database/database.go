@@ -96,6 +96,7 @@ type Patients struct {
 	Gender        string `json:"gender"`
 	Adhar         string `json:"adhar"`
 	HospitalID    uint   `json:"hospital_id" gorm:"not null;foreignKey:HospitalID;references:Hospitals(HospitalId)"`
+	Region        string `json:"region"`
 }
 
 type HospitalAdmin struct {
@@ -145,6 +146,7 @@ type Doctors struct {
 	Hospital      string     `json:"hospital_name" gorm:"not null;foreignKey:Hospital;references:Hospitals(HospitalName);onDelete:CASCADE"`
 	Department    Department `json:"department" gorm:"not null"`
 	Username      string     `json:"username" gorm:"unique;not null"`
+	Region        string     `json:"region"`
 }
 
 type Position string
@@ -180,6 +182,7 @@ type BedsCount struct {
 	TotalBeds  uint     `json:"total_beds" gorm:"not null"`       // Total beds defined by the admin
 	HospitalID uint     `json:"hospital_id" gorm:"not null;foreignKey:HospitalID;references:Hospitals(HospitalId)"`
 	IsOccupied bool     `json:"is_occupied" gorm:"default:false"`
+	Region     string   `json:"region"`
 }
 type Room struct {
 	ID         uint   `json:"id" gorm:"primaryKey;autoIncrement"`

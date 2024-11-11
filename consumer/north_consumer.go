@@ -147,6 +147,40 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 
 		log.Printf("Staff member created successfully with ID: %d", staff.StaffID)
 		return nil
+	case "patient_registration":
+		log.Printf("Processing patient_registration message: %s", string(msg.Value))
+
+		var patients database.Patients
+		if err := json.Unmarshal(msg.Value, &patients); err != nil {
+			log.Printf("Error unmarshalling patients data: %v", err)
+			return err
+
+		}
+
+		if err := database.NorthDB.Create(&patients).Error; err != nil {
+			log.Printf("Error creating patients in database: %v", err)
+			return fmt.Errorf(err.Error())
+		}
+	case "patient_Admit":
+		log.Printf("Processing patient_registration message: %s", string(msg.Value))
+
+		var patient_Admit database.PatientBeds
+		if err := json.Unmarshal(msg.Value, &patient_Admit); err != nil {
+			log.Printf("Error unmarshalling patient_admit data: %v", err)
+			return err
+
+		}
+
+		if err := database.NorthDB.Create(&patient_Admit).Error; err != nil {
+			log.Printf("Error creating patients in database: %v", err)
+			return fmt.Errorf(err.Error())
+		}
+		var availableRoom database.Room
+		availableRoom.IsOccupied = true
+		if err := database.NorthDB.Save(&availableRoom).Error; err != nil {
+			log.Printf("Error saving patient_admit data: %v", err)
+			return err
+		}
 
 	default:
 		// Handle any other topics or log an error if the topic is not recognized
