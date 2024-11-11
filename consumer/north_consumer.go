@@ -190,6 +190,41 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 			return fmt.Errorf("failed to notify compounder via Redis: %v", err)
 		}
 
+	case "patient_admission":
+		log.Printf("Processing patient_admission message: %s", string(msg.Value))
+
+		var patientAdmit struct {
+			BedID      string `json:"patient_room_no"`
+			BedType    string `json:"patient_bed_type"`
+			IsAdmitted bool   `json:"is_admitted"`
+		}
+
+		// Unmarshal the Kafka message into patientAdmit struct
+		if err := json.Unmarshal(msg.Value, &patientAdmit); err != nil {
+			log.Printf("Error unmarshalling patient_admit data: %v", err)
+			return err
+		}
+
+		// Find the bed based on BedID (patient_room_no) and BedType
+		var bed database.PatientBeds
+		if err := database.NorthDB.Where("patient_room_no = ? AND patient_bed_type = ?", patientAdmit.BedID, patientAdmit.BedType).First(&bed).Error; err != nil {
+			// If no bed is found, log an error and return
+			log.Printf("Error finding bed with room number %s and bed type %s: %v", patientAdmit.BedID, patientAdmit.BedType, err)
+			return fmt.Errorf("Error finding bed with room number %s and bed type %s: %v", patientAdmit.BedID, patientAdmit.BedType, err)
+		}
+
+		// Update the 'Hospitalized' field to reflect admission status
+		bed.Hospitalized = patientAdmit.IsAdmitted
+
+		// Save the updated bed status to the database
+		if err := database.NorthDB.Save(&bed).Error; err != nil {
+			log.Printf("Error saving bed data for room %s and bed type %s: %v", patientAdmit.BedID, patientAdmit.BedType, err)
+			return fmt.Errorf("Error saving bed data: %v", err)
+		}
+
+		log.Printf("Patient admission status updated successfully for bed %s (%s). Hospitalized: %v", patientAdmit.BedID, patientAdmit.BedType, bed.Hospitalized)
+		return nil
+
 	default:
 		// Handle any other topics or log an error if the topic is not recognized
 		log.Printf("Received message from unknown topic: %s", topic)

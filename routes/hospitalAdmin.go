@@ -73,5 +73,9 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 			c.Set("km", km)
 			controllers.AdmitPatientForHospitalization(c)
 		})
+		compounderRoute.POST("/hospitalise", func(c *gin.Context) {
+			c.Set("km", km)
+			controllers.AdmitPatient(c)
+		})
 	}
 }
