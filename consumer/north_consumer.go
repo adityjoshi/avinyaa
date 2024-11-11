@@ -182,6 +182,14 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 			return err
 		}
 
+		message := fmt.Sprintf("Patient %s with ID %d is coming for hospitalization and has been assigned bed number %d.", patient_Admit.PatientID, patient_Admit.FullName, patient_Admit.PatientRoomNo, patient_Admit.PatientRoomNo)
+
+		// Publish the message to Redis to notify other services (e.g., compounder, dashboard)
+		if err := database.RedisClient.Publish(database.Ctx, "patient_admission", message).Err(); err != nil {
+			log.Printf("Error publishing patient admission notification to Redis: %v", err)
+			return fmt.Errorf("failed to notify compounder via Redis: %v", err)
+		}
+
 	default:
 		// Handle any other topics or log an error if the topic is not recognized
 		log.Printf("Received message from unknown topic: %s", topic)

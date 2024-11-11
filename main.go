@@ -151,6 +151,7 @@ func main() {
 	// Start additional goroutines for other tasks
 	go controllers.SubscribeToPaymentUpdates()
 	go controllers.SubscribeToHospitalizationUpdates()
+	go controllers.SubscribeToHospitaliztionUpdates()
 
 	// Setup the HTTP server with Gin
 	router := gin.Default()

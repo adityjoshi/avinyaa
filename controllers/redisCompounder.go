@@ -47,3 +47,21 @@ func SubscribeToHospitalizationUpdates() {
 		// You can trigger any action here, such as updating the frontend
 	}
 }
+
+func SubscribeToHospitaliztionUpdates() {
+	pubsub := database.GetRedisClient().Subscribe(context.Background(), "patient_admission")
+
+	// Infinite loop to listen for messages
+	for {
+		msg, err := pubsub.ReceiveMessage(context.Background())
+		if err != nil {
+			log.Printf("Error receiving Redis message: %v", err)
+			continue
+		}
+
+		// Log or process the received message
+		fmt.Printf("Hospitalization Update: %s\n", msg.Payload)
+
+		// You can trigger any action here, such as updating the frontend
+	}
+}

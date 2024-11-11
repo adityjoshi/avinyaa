@@ -474,8 +474,8 @@ func AdmitPatientForHospitalization(c *gin.Context) {
 	patient_beds.City = patient.City
 	patient_beds.State = patient.City
 	patient_beds.PinCode = patient.PinCode
-	patient_beds.Gender = patient_beds.Gender
-	patient_beds.Adhar = patient_beds.Adhar
+	patient_beds.Gender = patient.Gender
+	patient_beds.Adhar = patient.Adhar
 	patient_beds.HospitalID = staff.HospitalID
 	patient_beds.HospitalName = staff.HospitalName
 	patient_beds.HospitalUsername = staff.Username
@@ -536,11 +536,11 @@ func AdmitPatientForHospitalization(c *gin.Context) {
 		return
 	}
 
-	message := fmt.Sprintf("Patient %s with ID %d has completed the payment.", patient.FullName, patient.PatientID)
-	if err := database.RedisClient.Publish(database.Ctx, "patient_updates", message).Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to notify compounder"})
-		return
-	}
+	// message := fmt.Sprintf("Patient %s with ID %d has completed the payment.", patient.FullName, patient.PatientID)
+	// if err := database.RedisClient.Publish(database.Ctx, "patient_updates", message).Err(); err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to notify compounder"})
+	// 	return
+	// }
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "Patient admitted successfully",
@@ -554,6 +554,7 @@ func CompounderLogin(c *gin.Context) {
 	var reqData struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Region   string `json:"region`
 	}
 
 	// Parse login credentials
@@ -564,7 +565,8 @@ func CompounderLogin(c *gin.Context) {
 
 	// Find the compounder by email
 	var compounder database.HospitalStaff
-	if err := database.DB.Where("email = ?", reqData.Email).First(&compounder).Error; err != nil {
+	db, err := database.GetDBForRegion(reqData.Region)
+	if err = db.Where("email = ?", reqData.Email).First(&compounder).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
@@ -576,7 +578,7 @@ func CompounderLogin(c *gin.Context) {
 	}
 
 	// Generate JWT token
-	token, err := utils.GenerateJwt(compounder.StaffID, "Staff", "Compounder", "")
+	token, err := utils.GenerateJwt(compounder.StaffID, "Staff", "Compounder", reqData.Region)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
