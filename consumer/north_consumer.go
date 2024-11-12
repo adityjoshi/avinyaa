@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/adityjoshi/avinyaa/database"
+	"github.com/adityjoshi/avinyaa/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -224,6 +226,252 @@ func processMessage(topic string, msg *sarama.ConsumerMessage) error {
 
 		log.Printf("Patient admission status updated successfully for bed %s (%s). Hospitalized: %v", patientAdmit.BedID, patientAdmit.BedType, bed.Hospitalized)
 		return nil
+		// case "appointment_reg":
+		// 	log.Printf("Processing appointment registration message: %s", string(msg.Value))
+		// 	var appointment database.Appointment
+		// 	if err := json.Unmarshal(msg.Value, &appointment); err != nil {
+		// 		log.Printf("Error unmarshalling patient_admit data: %v", err)
+		// 		return err
+
+		// 	}
+
+		// 	if err := database.NorthDB.Create(&appointment).Error; err != nil {
+		// 		fmt.Println("Error creating appointment:", err)
+		// 		log.Printf("Error saving appointment for patient %s on %s at %s: %v", appointment.PatientID, appointment.AppointmentDate, appointment.AppointmentTime, err)
+		// 		return fmt.Errorf("Error saving appointment: %v", err)
+		// 	}
+
+		// 	// Fetch doctor details
+		// 	var doctor database.Doctors
+		// 	if err := database.NorthDB.Where("doctor_id = ?", appointment.DoctorID).First(&doctor).Error; err != nil {
+		// 		return fmt.Errorf("Error fetching doctor details: %v", err)
+		// 	}
+
+		// 	// Fetch patient details
+		// 	var user database.Patients
+		// 	if err := database.NorthDB.Where("patient_id = ?", appointment.PatientID).First(&user).Error; err != nil {
+		// 		return fmt.Errorf("Error fetching patient details: %v", err)
+		// 	}
+
+		// 	// Create booking time (current time)
+		// 	bookingTime := time.Now().Format("2006-01-02 15:04:05") // Current time as booking time
+
+		// 	// Send appointment confirmation email
+		// 	err := utils.SendAppointmentEmail(user.Email, doctor.FullName, appointment.AppointmentDate.Format("2006-01-02"), appointment.AppointmentTime.Format("15:04"), bookingTime)
+		// 	if err != nil {
+		// 		log.Fatalf("Error sending appointment email: %v", err)
+		// 	}
+
+		// 	// Optionally publish a notification to Redis (for example, to notify the department about the new appointment)
+		// 	channel := fmt.Sprintf("appointments:%s:%s", user.HospitalID, doctor.Department)
+		// 	notificationMessage := fmt.Sprintf("New appointment for patient %s with Dr. %s on %s at %s", user.FullName, doctor.FullName, appointment.AppointmentDate.Format("2006-01-02"), appointment.AppointmentTime.Format("15:04"))
+		// 	if err := database.RedisClient.Publish(database.Ctx,"appointment" ,channel, notificationMessage).Err(); err != nil {
+		// 		log.Printf("Error publishing appointment notification to Redis for hospital %s, department %s: %v", err)
+		// 		return fmt.Errorf("Failed to notify via Redis for hospital %s, department %s: %v", user.HospitalID, doctor.Department, err)
+		// 	}
+
+		// 	log.Printf("Appointment successfully booked for patient %s with Dr. %s", doctor.FullName)
+
+	case "appointment_reg":
+		log.Printf("Processing appointment registration message: %s", string(msg.Value))
+
+		// Unmarshal the message into the appointment struct
+		var appointment database.Appointment
+		if err := json.Unmarshal(msg.Value, &appointment); err != nil {
+			log.Printf("Error unmarshalling appointment data: %v", err)
+			return err
+		}
+
+		// Save the appointment to the North region database
+		if err := database.NorthDB.Create(&appointment).Error; err != nil {
+			log.Printf("Error saving appointment for patient %s on %s at %s: %v", appointment.PatientID, appointment.AppointmentDate, appointment.AppointmentTime, err)
+			return fmt.Errorf("Error saving appointment: %v", err)
+		}
+
+		// Fetch doctor details from North region database
+		var doctor database.Doctors
+		if err := database.NorthDB.Where("doctor_id = ?", appointment.DoctorID).First(&doctor).Error; err != nil {
+			return fmt.Errorf("Error fetching doctor details: %v", err)
+		}
+
+		// Fetch patient details from North region database
+		var user database.Patients
+		if err := database.NorthDB.Where("patient_id = ?", appointment.PatientID).First(&user).Error; err != nil {
+			return fmt.Errorf("Error fetching patient details: %v", err)
+		}
+
+		// Create booking time (current time, real-time timestamp when the appointment is created)
+		realTime := time.Now().Format("2006-01-02 15:04:05") // Current time as real-time timestamp
+
+		// Send appointment confirmation email
+		err := utils.SendAppointmentEmail(user.Email, doctor.FullName, appointment.AppointmentDate.Format("2006-01-02"), appointment.AppointmentTime.Format("15:04"), realTime)
+		if err != nil {
+			log.Fatalf("Error sending appointment email: %v", err)
+		}
+
+		// Construct the notification message to publish to Redis
+		hospitalID := fmt.Sprintf("%d", user.HospitalID) // Convert hospital_id to string
+
+		// Create the correct channel name for Redis
+		channel := fmt.Sprintf("appointments:%s:%s", hospitalID, doctor.Department)
+
+		// Now construct the notification message
+		notificationMessage := fmt.Sprintf(`{
+		"patient_name": "%s",
+		"appointment_time": "%s",
+		"doctor_name": "%s",
+		"department": "%s",
+		"appointment_date": "%s",
+		"hospital_id": "%s",
+		"real_time": "%s"
+	}`,
+			user.FullName,
+			appointment.AppointmentTime.Format("15:04"), // Appointment time
+			doctor.FullName,
+			doctor.Department,
+			appointment.AppointmentDate.Format("2006-01-02"),
+			hospitalID, // Correctly formatted hospital_id
+			realTime,   // Real-time timestamp
+		)
+
+		// Publish to Redis with the correct channel name
+		if err := database.RedisClient.Publish(database.Ctx, channel, notificationMessage).Err(); err != nil {
+			log.Printf("Error publishing appointment notification to Redis for hospital %s, department %s: %v", hospitalID, doctor.Department, err)
+			return fmt.Errorf("Failed to notify via Redis for hospital %s, department %s: %v", hospitalID, doctor.Department, err)
+		}
+
+		// Define the Redis key for the North region
+		redisKey := fmt.Sprintf("appointments:%s:%s:%s", "North", hospitalID, doctor.Department)
+
+		// Marshal the appointment data into JSON
+		appointmentJSON, err := json.Marshal(appointment)
+		if err != nil {
+			log.Printf("Error marshaling appointment data: %v", err)
+			return fmt.Errorf("Error marshaling appointment: %v", err)
+		}
+
+		// Push the appointment to the Redis list (acting as a queue)
+		err = database.RedisClient.LPush(database.Ctx, redisKey, appointmentJSON).Err()
+		if err != nil {
+			log.Printf("Error adding appointment to Redis queue: %v", err)
+			return fmt.Errorf("Error adding appointment to Redis queue: %v", err)
+		}
+
+		fmt.Printf("Appointment for department %s added to Redis under key %s\n", doctor.Department, redisKey)
+
+		log.Printf("Appointment successfully booked for patient %s with Dr. %s at %s", user.FullName, doctor.FullName, realTime)
+
+		return nil
+
+		// 	case "appointment_reg":
+		// 		log.Printf("Processing appointment registration message: %s", string(msg.Value))
+
+		// 		// Unmarshal the message into the appointment struct
+		// 		var appointment database.Appointment
+		// 		if err := json.Unmarshal(msg.Value, &appointment); err != nil {
+		// 			log.Printf("Error unmarshalling appointment data: %v", err)
+		// 			return err
+		// 		}
+
+		// 		// Save the appointment to the database
+		// 		if err := database.NorthDB.Create(&appointment).Error; err != nil {
+		// 			fmt.Println("Error creating appointment:", err)
+		// 			log.Printf("Error saving appointment for patient %s on %s at %s: %v", appointment.PatientID, appointment.AppointmentDate, appointment.AppointmentTime, err)
+		// 			return fmt.Errorf("Error saving appointment: %v", err)
+		// 		}
+
+		// 		// Fetch doctor details
+		// 		var doctor database.Doctors
+		// 		if err := database.NorthDB.Where("doctor_id = ?", appointment.DoctorID).First(&doctor).Error; err != nil {
+		// 			return fmt.Errorf("Error fetching doctor details: %v", err)
+		// 		}
+
+		// 		// Fetch patient details
+		// 		var user database.Patients
+		// 		if err := database.NorthDB.Where("patient_id = ?", appointment.PatientID).First(&user).Error; err != nil {
+		// 			return fmt.Errorf("Error fetching patient details: %v", err)
+		// 		}
+
+		// 		// Create booking time (current time, real-time timestamp when the appointment is created)
+		// 		realTime := time.Now().Format("2006-01-02 15:04:05") // Current time as real-time timestamp
+
+		// 		// Send appointment confirmation email
+		// 		err := utils.SendAppointmentEmail(user.Email, doctor.FullName, appointment.AppointmentDate.Format("2006-01-02"), appointment.AppointmentTime.Format("15:04"), realTime)
+		// 		if err != nil {
+		// 			log.Fatalf("Error sending appointment email: %v", err)
+		// 		}
+
+		// 		// Construct the notification message to publish to Redis
+		// 		hospitalID := fmt.Sprintf("%d", user.HospitalID) // Convert hospital_id to string
+
+		// 		// Create the correct channel name for Redis
+		// 		channel := fmt.Sprintf("appointments:%s:%s", hospitalID, doctor.Department)
+
+		// 		// Now construct the notification message
+		// 		notificationMessage := fmt.Sprintf(`{
+		// 	"patient_name": "%s",
+		// 	"appointment_time": "%s",
+		// 	"doctor_name": "%s",
+		// 	"department": "%s",
+		// 	"appointment_date": "%s",
+		// 	"hospital_id": "%s",
+		// 	"real_time": "%s"
+		// }`,
+		// 			user.FullName,
+		// 			appointment.AppointmentTime.Format("15:04"), // Appointment time
+		// 			doctor.FullName,
+		// 			doctor.Department,
+		// 			appointment.AppointmentDate.Format("2006-01-02"),
+		// 			hospitalID, // Correctly formatted hospital_id
+		// 			realTime,   // Real-time timestamp
+		// 		)
+
+		// 		// Publish to Redis with the correct channel name
+		// 		if err := database.RedisClient.Publish(database.Ctx, channel, notificationMessage).Err(); err != nil {
+		// 			log.Printf("Error publishing appointment notification to Redis for hospital %s, department %s: %v", hospitalID, doctor.Department, err)
+		// 			return fmt.Errorf("Failed to notify via Redis for hospital %s, department %s: %v", hospitalID, doctor.Department, err)
+		// 		}
+
+		// 		// Add appointment to Redis queue for that department
+		// 		// redisKey := fmt.Sprintf("appointments:%s:%s", hospitalID, doctor.Department)
+		// 		// appointmentJSON, err := json.Marshal(appointment) // Marshal appointment into JSON
+		// 		// if err != nil {
+		// 		// 	log.Printf("Error marshaling appointment data: %v", err)
+		// 		// 	return fmt.Errorf("Error marshaling appointment: %v", err)
+		// 		// }
+
+		// 		// // Push appointment to Redis list (acting as a queue)
+		// 		// err = database.RedisClient.LPush(database.Ctx, redisKey, appointmentJSON).Err()
+		// 		// if err != nil {
+		// 		// 	log.Printf("Error adding appointment to Redis queue: %v", err)
+		// 		// 	return fmt.Errorf("Error adding appointment to Redis queue: %v", err)
+		// 		// }
+
+		// 		// Assuming you're passing hospitalID and doctor.Department from the user request
+
+		// 		// Define the region for the current appointment
+		// 		region := "north" // This can be dynamic based on the hospital's region
+
+		// 		// Create the Redis key using the region, hospital ID, and doctor's department
+		// 		redisKey := fmt.Sprintf("appointments:%s:%s:%s", region, hospitalID, doctor.Department)
+
+		// 		// Marshal the appointment data into JSON
+		// 		appointmentJSON, err := json.Marshal(appointment)
+		// 		if err != nil {
+		// 			log.Printf("Error marshaling appointment data: %v", err)
+		// 			return fmt.Errorf("Error marshaling appointment: %v", err)
+		// 		}
+
+		// 		// Push the appointment to the Redis list (acting as a queue)
+		// 		err = database.RedisClient.LPush(database.Ctx, redisKey, appointmentJSON).Err()
+		// 		if err != nil {
+		// 			log.Printf("Error adding appointment to Redis queue: %v", err)
+		// 			return fmt.Errorf("Error adding appointment to Redis queue: %v", err)
+		// 		}
+
+		// 		fmt.Printf("Appointment for department %s added to Redis under key %s\n", doctor.Department, redisKey)
+
+		// 		log.Printf("Appointment successfully booked for patient %s with Dr. %s at %s", user.FullName, doctor.FullName, realTime)
 
 	default:
 		// Handle any other topics or log an error if the topic is not recognized

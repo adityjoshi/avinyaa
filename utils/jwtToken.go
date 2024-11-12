@@ -28,6 +28,24 @@ func GenerateJwt(userID uint, userType, role, region string) (string, error) {
 	return tokenString, nil
 }
 
+func GenerateDoctorJwt(doctorID uint, userType, role, department, region string) (string, error) {
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["doctor_id"] = doctorID // Change user_id to doctor_id
+
+	claims["user_type"] = userType
+	claims["role"] = role
+	claims["department"] = department // Add department to the claims
+	claims["region"] = region
+	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+
+	tokenString, err := token.SignedString(jwtSecret)
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
 // DecodeJwt decodes a JWT token and returns the claims.
 func DecodeJwt(tokenString string) (jwt.MapClaims, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {

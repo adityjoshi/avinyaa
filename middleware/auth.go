@@ -59,6 +59,34 @@ func AuthRequired(userType, requiredRole string) gin.HandlerFunc {
 			return
 		}
 
+		switch userType {
+		case "Admin":
+			c.Set("admin_id", uint(userID))
+		case "Staff":
+			c.Set("staff_id", uint(userID))
+		case "Doctor":
+			// Set doctor-specific fields
+			doctorID, doctorIDExists := claims["doctor_id"].(float64)
+			department, departmentExists := claims["department"].(string)
+			region, regionExists := claims["region"].(string)
+
+			if !doctorIDExists || !departmentExists || !regionExists {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Doctor credentials are incomplete in token"})
+				c.Abort()
+				return
+			}
+
+			// Set doctor-specific context values
+			c.Set("doctor_id", uint(doctorID))
+			c.Set("department", department)
+			c.Set("region", region)
+		default:
+			// If an unknown user type is encountered
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unknown user type"})
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }

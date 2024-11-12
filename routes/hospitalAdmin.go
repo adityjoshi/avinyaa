@@ -14,6 +14,7 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 		c.Set("km", km)                      // Set km into the context
 		controllers.RegisterHospitalAdmin(c) // Call the controller function
 	})
+	incomingRoutes.POST("/logindoc", controllers.DoctorLogin)
 	incomingRoutes.POST("/adminLogin", middleware.RateLimiterMiddleware(2, time.Minute), controllers.AdminLogin)
 	incomingRoutes.POST("/adminOtp", middleware.AuthRequired("Admin", ""), controllers.VerifyAdminOTP)
 	//incomingRoutes.POST("/stafflogin", controllers.StaffLogin)
@@ -34,6 +35,7 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 	incomingRoutes.POST("/doctor", middleware.AuthRequired("Admin", ""), controllers.RegisterDoctor)
 	// incomingRoutes.GET("/getdoctor/:id", controllers.GetDoctor)
 	// incomingRoutes.POST("/bookAppointment", controllers.CreateAppointment)
+	incomingRoutes.POST("/markAppointment/:appointment_id", controllers.MarkAppointmentAsDone)
 
 	adminRoutes := incomingRoutes.Group("/admin")
 	adminRoutes.Use(middleware.AuthRequired("Admin", ""))
@@ -42,7 +44,10 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 		//adminRoutes.GET("/gethospital/:id", middleware.OtpAuthRequireed, controllers.GetHospital)
 		adminRoutes.POST("/doctor", middleware.OtpAuthRequireed, controllers.RegisterDoctor)
 		adminRoutes.GET("/getdoctor/:id", middleware.OtpAuthRequireed, controllers.GetDoctor)
-		adminRoutes.POST("/bookAppointment", middleware.OtpAuthRequireed, controllers.CreateAppointment)
+		adminRoutes.POST("/v", middleware.OtpAuthRequireed, func(c *gin.Context) {
+			c.Set("km", km)
+			controllers.CreateAppointment(c)
+		})
 		adminRoutes.POST("/registerStaff", middleware.OtpAuthRequireed, func(c *gin.Context) {
 			c.Set("km", km)
 			controllers.RegisterStaff(c)
@@ -52,7 +57,7 @@ func HospitalAdmin(incomingRoutes *gin.Engine, km *kafkamanager.KafkaManager) {
 		//adminRoutes.GET("/getBeds", middleware.OtpAuthRequireed, controllers.GetTotalBeds)
 	}
 	receptionistRoute := incomingRoutes.Group("/reception")
-	receptionistRoute.Use(middleware.AuthRequired("Staff", "Reception"))
+	receptionistRoute.Use(middleware.AuthRequired("Staff", "Compounder"))
 	{
 		incomingRoutes.POST("/stafflogin", controllers.StaffLogin)
 		receptionistRoute.POST("/staffotp", controllers.VerifyStaffOTP)

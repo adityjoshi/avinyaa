@@ -7,7 +7,7 @@ import (
 
 // ListenForPatientUpdates - Compounder subscribes to patient updates
 func ListenForPatientUpdates() {
-	pubsub := GetRedisClient().Subscribe(Ctx, "patient_updates", "patient_admission")
+	pubsub := GetRedisClient().Subscribe(Ctx, "patient_updates", "patient_admission", "appointment")
 	defer pubsub.Close()
 
 	for {

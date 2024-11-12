@@ -152,6 +152,8 @@ func main() {
 	go controllers.SubscribeToPaymentUpdates()
 	go controllers.SubscribeToHospitalizationUpdates()
 	go controllers.SubscribeToHospitaliztionUpdates()
+	go controllers.SubscribeToAppointmentUpdates()
+	go controllers.CheckAppointmentsQueue()
 
 	// Setup the HTTP server with Gin
 	router := gin.Default()

@@ -147,6 +147,7 @@ type Doctors struct {
 	Department    Department `json:"department" gorm:"not null"`
 	Username      string     `json:"username" gorm:"unique;not null"`
 	Region        string     `json:"region"`
+	Password      string     `json:"password" gorm:"not null"`
 }
 
 type Position string
@@ -220,6 +221,8 @@ type Appointment struct {
 	AppointmentDate time.Time `json:"appointment_date" gorm:"not null"`
 	AppointmentTime time.Time `json:"appointment_time" gorm:"not null"`
 	Description     string    `json:"description"`
+	IsDone          bool      `json:"is_done"`
+	Appointed       bool      `json:"appointed"`
 }
 
 func CloseDatabase() {
